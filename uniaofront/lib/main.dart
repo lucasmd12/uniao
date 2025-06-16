@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:firebase_core/firebase_core.dart'; // Import Firebase Core
+import 'package:firebase_core/firebase_core.dart';
+import 'package:sentry_flutter/sentry_flutter.dart'; // <-- Adicionado
 
 // Import Screens
 import 'screens/splash_screen.dart';
@@ -23,7 +24,7 @@ import 'services/signaling_service.dart';
 import 'services/voip_service.dart';
 import 'services/notification_service.dart';
 import 'services/mission_service.dart';
-import 'providers/auth_provider.dart'; // Import AuthProvider
+import 'providers/auth_provider.dart';
 import 'providers/connectivity_provider.dart';
 import 'providers/call_provider.dart';
 import 'providers/mission_provider.dart';
@@ -32,23 +33,33 @@ import 'utils/theme_constants.dart';
 import 'widgets/app_lifecycle_reactor.dart';
 import 'widgets/incoming_call_overlay.dart';
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(); // Inicializa o Firebase
-  Logger.info("App Initialization Started.");
+  await Firebase.initializeApp();
 
-  try {
-    await SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-    ]);
-    Logger.info('Screen orientation set to portrait.');
-  } catch (e, stackTrace) {
-    Logger.error('Failed to set screen orientation', error: e, stackTrace: stackTrace);
-  }
+  await SentryFlutter.init(
+    (options) {
+      options.dsn = 'https://a561c5c87b25dfea7864b2fb292a25c1@o4509510833995776.ingest.us.sentry.io/4509510909820928';
+      options.tracesSampleRate = 1.0;
+    },
+    appRunner: () async {
+      Logger.info("App Initialization Started.");
 
-  Logger.info("Running FEDERACAOMAD App.");
-  runApp(const FEDERACAOMADApp());
+      try {
+        await SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+        ]);
+        Logger.info('Screen orientation set to portrait.');
+      } catch (e, stackTrace) {
+        Logger.error('Failed to set screen orientation', error: e, stackTrace: stackTrace);
+        await Sentry.captureException(e, stackTrace: stackTrace);
+      }
+
+      Logger.info("Running FEDERACAOMAD App.");
+      runApp(const FEDERACAOMADApp());
+    },
+  );
 }
 
 class FEDERACAOMADApp extends StatelessWidget {
@@ -61,7 +72,7 @@ class FEDERACAOMADApp extends StatelessWidget {
     final apiService = ApiService();
     final authService = AuthService();
     final socketService = SocketService(authService);
-    final signalingService = SignalingService(socketService, rtcConfiguration: {}); // Temporary fix: pass empty constraints
+    final signalingService = SignalingService(socketService, rtcConfiguration: {});
     final federationService = FederationService(apiService, authService);
     final clanService = ClanService(apiService, authService);
     final chatService = ChatService();
@@ -70,7 +81,6 @@ class FEDERACAOMADApp extends StatelessWidget {
 
     return MultiProvider(
       providers: [
-        // --- Core Services ---
         Provider<ApiService>.value(value: apiService),
         ChangeNotifierProvider<AuthService>.value(value: authService),
         Provider<SocketService>.value(value: socketService),
@@ -79,13 +89,7 @@ class FEDERACAOMADApp extends StatelessWidget {
         Provider<ClanService>.value(value: clanService),
         Provider<MissionService>.value(value: missionService),
         ChangeNotifierProvider<NotificationService>.value(value: notificationService),
-
-        // --- VoIP Service ---
-        ChangeNotifierProvider<VoipService>(
-          create: (context) => VoipService(),
-        ),
-
-        // --- Feature Services & Providers (Dependent on Core Services) ---
+        ChangeNotifierProvider<VoipService>(create: (context) => VoipService()),
         ChangeNotifierProvider<ChatService>.value(value: chatService),
         ChangeNotifierProvider<AuthProvider>(
           create: (context) => AuthProvider(
@@ -100,12 +104,10 @@ class FEDERACAOMADApp extends StatelessWidget {
             signalingService: context.read<SignalingService>(),
           ),
         ),
-        ChangeNotifierProvider<MissionProvider>(
-          create: (context) => MissionProvider(
-            context.read<MissionService>(),
-          ),
-        ),
         ChangeNotifierProvider(create: (context) => ConnectivityProvider()),
+        ChangeNotifierProvider<MissionProvider>(
+          create: (context) => MissionProvider(context.read<MissionService>()),
+        ),
       ],
       child: AppLifecycleReactor(
         child: MaterialApp(
@@ -137,7 +139,10 @@ class FEDERACAOMADApp extends StatelessWidget {
               if (clanId != null) {
                 return ClanManagementScreen(clanId: clanId);
               } else {
-                return Scaffold(appBar: AppBar(title: const Text('Erro')), body: const Center(child: Text('ID do Clã não fornecido.')));
+                return Scaffold(
+                  appBar: AppBar(title: const Text('Erro')),
+                  body: const Center(child: Text('ID do Clã não fornecido.')),
+                );
               }
             },
           },
@@ -146,4 +151,3 @@ class FEDERACAOMADApp extends StatelessWidget {
     );
   }
 }
-
